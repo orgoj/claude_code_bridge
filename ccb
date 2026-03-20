@@ -1139,8 +1139,24 @@ class AILauncher:
             return
         if not os.environ.get("TMUX"):
             return
-        script = Path.home() / ".local" / "bin" / ("ccb-tmux-on.sh" if active else "ccb-tmux-off.sh")
-        if not script.exists():
+
+        # Find tmux script with fallback: ~/.local/bin -> repo/config -> repo/bin
+        repo_root = Path(__file__).parent
+        script_name = "ccb-tmux-on.sh" if active else "ccb-tmux-off.sh"
+
+        paths = [
+            Path.home() / ".local" / "bin" / script_name,  # Normal install
+            repo_root / "config" / script_name,             # Repo install (original)
+            repo_root / "bin" / script_name,                # Repo install (symlinked)
+        ]
+
+        script = None
+        for p in paths:
+            if p.exists() and os.access(p, os.X_OK):
+                script = p
+                break
+
+        if not script:
             return
         try:
             debug = os.environ.get("CCB_DEBUG") in ("1", "true", "yes")
