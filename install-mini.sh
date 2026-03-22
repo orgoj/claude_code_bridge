@@ -337,7 +337,7 @@ install_tmux() {
     {
       echo ""
       echo "# CCB tmux integration (minimal)"
-      echo "run -b '$processed_conf'"
+      echo "source-file $processed_conf"
     } >> "$tmux_conf"
     info "✓ Added tmux config to $tmux_conf"
   else
@@ -370,7 +370,7 @@ show_tmux_preview() {
   echo ""
   echo "  2. Add to $tmux_conf:"
   echo "     # CCB tmux integration (minimal)"
-  echo "     run -b '${XDG_CONFIG_HOME:-$HOME/.config}/ccb/tmux-ccb-minimal.conf'"
+  echo "     source-file ${XDG_CONFIG_HOME:-$HOME/.config}/ccb/tmux-ccb-minimal.conf"
   echo ""
   echo "  3. tmux-ccb-minimal.conf contains:"
   echo "     • Only: set @ccb_bin_dir for CCB theming"
