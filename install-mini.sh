@@ -164,6 +164,17 @@ install_skills() {
 
 # Add repo/bin to PATH
 setup_path() {
+  # Symlink ccb executable into bin/ so PATH setup exposes it
+  local ccb_symlink="$REPO_ROOT/bin/ccb"
+  if [[ -L "$ccb_symlink" ]]; then
+    : # already a symlink, leave it
+  elif [[ -e "$ccb_symlink" ]]; then
+    warn "Skipping bin/ccb symlink (non-symlink file exists)"
+  else
+    ln -sf "$REPO_ROOT/ccb" "$ccb_symlink"
+    info "✓ Linked bin/ccb → ccb"
+  fi
+
   local shell_config
   shell_config="$(get_shell_config)"
 
@@ -201,6 +212,7 @@ show_path_preview() {
 
   echo ""
   show_preview "The following will be added to your shell config:"
+  echo "  Symlink: $REPO_ROOT/bin/ccb → $REPO_ROOT/ccb"
   echo "  File: $shell_config"
   echo ""
   echo "  # CCB - Claude Code Bridge (managed by install-mini.sh)"
