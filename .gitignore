@@ -32,5 +32,13 @@ openspec
 *.log
 .hippocampus
 
+# Symlinks created by install-mini.sh
+bin/ccb
+bin/ccb-border.sh
+bin/ccb-git.sh
+bin/ccb-status.sh
+bin/ccb-tmux-on.sh
+bin/ccb-tmux-off.sh
+
 # bv (beads viewer) local config and caches
 .bv/

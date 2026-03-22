@@ -30,17 +30,15 @@ warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
 show_preview() { echo -e "${BLUE}[PREVIEW]${NC} $1"; }
 
-# Detect shell
+# Detect user's login shell (not the shell running this script)
 detect_shell() {
-  if [[ -n "${ZSH_VERSION:-}" ]]; then
-    echo "zsh"
-  elif [[ -n "${FISH_VERSION:-}" ]]; then
-    echo "fish"
-  elif [[ -n "${BASH_VERSION:-}" ]]; then
-    echo "bash"
-  else
-    echo "unknown"
-  fi
+  local login_shell
+  login_shell="$(basename "${SHELL:-/bin/bash}")"
+
+  case "$login_shell" in
+    zsh|bash|fish) echo "$login_shell" ;;
+    *) echo "bash" ;;
+  esac
 }
 
 # Get config file for current shell
@@ -91,25 +89,105 @@ check_python() {
   return 0
 }
 
+# Detect Python environment: managed (mise/pyenv/asdf) vs system
+detect_python_env() {
+  local python3_path
+  python3_path="$(command -v python3 2>/dev/null || true)"
+
+  if [[ -z "$python3_path" ]]; then
+    echo "none"
+  elif [[ "$python3_path" == "$HOME"/* ]]; then
+    echo "managed"  # mise, pyenv, asdf — Python under $HOME
+  elif command -v apt-get >/dev/null 2>&1; then
+    echo "system-deb"
+  else
+    echo "system-other"
+  fi
+}
+
+# Show watchdog install preview
+show_watchdog_preview() {
+  local py_env
+  py_env="$(detect_python_env)"
+
+  echo ""
+  show_preview "Watchdog installation (better file watching performance):"
+  case "$py_env" in
+    managed)
+      echo "  • Managed Python detected (mise/pyenv/asdf)"
+      echo "  • Command: python3 -m pip install watchdog"
+      ;;
+    system-deb)
+      echo "  • System Python on Debian/Ubuntu"
+      echo "  • Command: sudo apt-get install python3-watchdog"
+      ;;
+    system-other)
+      echo "  • System Python"
+      echo "  • Command: python3 -m pip install --user watchdog"
+      ;;
+  esac
+  echo ""
+}
+
 # Install watchdog for file watching (optional)
 install_watchdog() {
-  info "Installing watchdog (for better file watching performance)..."
+  local py_env
+  py_env="$(detect_python_env)"
 
-  if command -v apt-get >/dev/null 2>&1; then
-    # Debian/Ubuntu: prefer system package to avoid externally-managed-environment error
-    if apt-get install -y -q python3-watchdog 2>/dev/null; then
-      info "✓ watchdog installed (via apt)"
-      return 0
-    fi
-  fi
+  info "Installing watchdog..."
 
-  # Non-deb or apt failed: try pip --user
-  if python3 -m pip install -q --user watchdog 2>/dev/null; then
-    info "✓ watchdog installed (via pip --user)"
-  else
-    warn "Could not install watchdog (will use polling, which is slower)"
-    warn "To install manually: apt-get install python3-watchdog  OR  pip install --user watchdog"
-  fi
+  case "$py_env" in
+    managed)
+      if python3 -m pip install -q watchdog; then
+        info "✓ watchdog installed (via pip, managed Python)"
+        return 0
+      fi
+      ;;
+    system-deb)
+      if sudo apt-get install -y -q python3-watchdog; then
+        info "✓ watchdog installed (via apt)"
+        return 0
+      fi
+      ;;
+    system-other)
+      if python3 -m pip install -q --user watchdog; then
+        info "✓ watchdog installed (via pip --user)"
+        return 0
+      fi
+      ;;
+  esac
+
+  warn "Could not install watchdog (will use polling, which is slower)"
+  warn "To install manually: pip install watchdog  OR  apt-get install python3-watchdog"
+}
+
+# Check if skills are already installed (all symlinks present)
+check_skills_installed() {
+  local central_skills="$HOME/.claude/skills"
+  local skill_types=("claude_skills" "codex_skills" "droid_skills")
+
+  [[ -d "$central_skills" ]] || return 1
+
+  for skill_type in "${skill_types[@]}"; do
+    local source_dir="$REPO_ROOT/$skill_type"
+    [[ -d "$source_dir" ]] || continue
+
+    for skill_dir in "$source_dir"/*; do
+      [[ -d "$skill_dir" ]] || continue
+      [[ -f "$skill_dir/SKILL.md" ]] || continue
+
+      local skill_name
+      skill_name="$(basename "$skill_dir")"
+      local dest_dir="$central_skills/$skill_name"
+
+      # Missing or broken symlink → not fully installed
+      if [[ ! -L "$dest_dir" ]]; then
+        return 1
+      fi
+    done
+  done
+
+  return 0
 }
 
 # Install skills to centralized location
@@ -171,9 +249,8 @@ install_skills() {
   return 0
 }
 
-# Add repo/bin to PATH
-setup_path() {
-  # Symlink ccb executable into bin/ so PATH setup exposes it
+# Ensure bin/ccb symlink exists (independent of PATH setup)
+ensure_ccb_symlink() {
   local ccb_symlink="$REPO_ROOT/bin/ccb"
   if [[ -L "$ccb_symlink" ]]; then
     : # already a symlink, leave it
@@ -183,20 +260,21 @@ setup_path() {
     ln -sf "$REPO_ROOT/ccb" "$ccb_symlink"
     info "✓ Linked bin/ccb → ccb"
   fi
+}
 
+# Add repo/bin to PATH
+setup_path() {
   local shell_config
   shell_config="$(get_shell_config)"
 
   local current_shell
   current_shell="$(detect_shell)"
 
-  local path_line pythonpath_line
+  local path_line
   if [[ "$current_shell" == "fish" ]]; then
     path_line="set -gx PATH \"$REPO_ROOT/bin\" \$PATH"
-    pythonpath_line="set -gx PYTHONPATH \"$REPO_ROOT/lib\" \$PYTHONPATH"
   else
     path_line="export PATH=\"$REPO_ROOT/bin:\$PATH\""
-    pythonpath_line="export PYTHONPATH=\"$REPO_ROOT/lib\${PYTHONPATH:+:\$PYTHONPATH}\""
   fi
 
   # Check if already configured
@@ -216,7 +294,6 @@ setup_path() {
     echo "# CCB - Claude Code Bridge (managed by install-mini.sh)"
     echo "# ccb_REPO_BIN_PATH_MARKER - do not remove this line"
     echo "$path_line"
-    echo "$pythonpath_line"
   } >> "$shell_config"
 
   info "✓ Added to PATH (restart shell or run: source $shell_config)"
@@ -231,13 +308,11 @@ show_path_preview() {
   local current_shell
   current_shell="$(detect_shell)"
 
-  local path_line pythonpath_line
+  local path_line
   if [[ "$current_shell" == "fish" ]]; then
     path_line="set -gx PATH \"$REPO_ROOT/bin\" \$PATH"
-    pythonpath_line="set -gx PYTHONPATH \"$REPO_ROOT/lib\" \$PYTHONPATH"
   else
     path_line="export PATH=\"$REPO_ROOT/bin:\$PATH\""
-    pythonpath_line="export PYTHONPATH=\"$REPO_ROOT/lib\${PYTHONPATH:+:\$PYTHONPATH}\""
   fi
 
   echo ""
@@ -248,7 +323,6 @@ show_path_preview() {
   echo "  # CCB - Claude Code Bridge (managed by install-mini.sh)"
   echo "  # ccb_REPO_BIN_PATH_MARKER - do not remove this line"
   echo "  $path_line"
-  echo "  $pythonpath_line"
   echo ""
 }
 
@@ -398,57 +472,77 @@ main() {
 
   check_python || exit 1
 
-  # Skills (ask first)
-  echo ""
-  show_preview "Skills installation:"
-  echo "  • Symlink skills from repo to ~/.claude/skills/"
-  echo "  • Allows all agents to use the same skills"
-  echo ""
-  read -p "Install centralized skills? [Y/n] " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    install_skills
+  # Skills (check if already installed before asking)
+  if check_skills_installed; then
+    info "✓ Skills already installed in ~/.claude/skills/"
   else
-    warn "Skipping skills installation"
+    echo ""
+    show_preview "Skills installation:"
+    echo "  • Symlink skills from repo to ~/.claude/skills/"
+    echo "  • Allows all agents to use the same skills"
+    echo ""
+    read -p "Install centralized skills? [Y/n] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+      install_skills
+    else
+      warn "Skipping skills installation"
+    fi
   fi
 
   # Watchdog (optional, only ask if not installed)
-  echo ""
   if python3 -c "import watchdog" >/dev/null 2>&1; then
     info "✓ watchdog already installed"
   else
-    read -p "Install watchdog for better file watching? [Y/n] " -n 1 -r
+    show_watchdog_preview
+    read -p "Install watchdog? [Y/n] " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Nn]$ ]]; then
       install_watchdog
     fi
   fi
 
-  # PATH setup (show preview first)
-  show_path_preview
-  read -p "Add CCB to PATH? [Y/n] " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    setup_path
-  fi
+  # Ensure bin/ccb symlink always exists
+  ensure_ccb_symlink
 
-  # WezTerm (optional, show preview)
-  if command -v wezterm >/dev/null 2>&1 || [[ -f "/mnt/c/Program Files/WezTerm/wezterm.exe" ]]; then
-    show_wezterm_preview
-    read -p "Install WezTerm integration? [y/N] " -n 1 -r
+  # PATH setup (check if already in $PATH)
+  if [[ ":$PATH:" == *":$REPO_ROOT/bin:"* ]]; then
+    info "✓ $REPO_ROOT/bin already in PATH"
+  else
+    show_path_preview
+    read -p "Add CCB to PATH? [Y/n] " -n 1 -r
     echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-      install_wezterm
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+      setup_path
     fi
   fi
 
-  # tmux (optional, show preview)
+  # WezTerm (optional, check if already configured)
+  if command -v wezterm >/dev/null 2>&1 || [[ -f "/mnt/c/Program Files/WezTerm/wezterm.exe" ]]; then
+    local env_file="${XDG_CONFIG_HOME:-$HOME/.config}/ccb/env"
+    if [[ -f "$env_file" ]]; then
+      info "✓ WezTerm integration already configured"
+    else
+      show_wezterm_preview
+      read -p "Install WezTerm integration? [y/N] " -n 1 -r
+      echo
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        install_wezterm
+      fi
+    fi
+  fi
+
+  # tmux (optional, check if already configured)
   if command -v tmux >/dev/null 2>&1 && [[ -f "$REPO_ROOT/config/tmux-ccb-minimal.conf" ]]; then
-    show_tmux_preview
-    read -p "Install tmux integration? [y/N] " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-      install_tmux
+    if grep -q "tmux-ccb-minimal.conf" "$HOME/.tmux.conf" 2>/dev/null; then
+      info "✓ tmux integration already configured"
+    else
+      show_tmux_preview
+      read -p "Install tmux integration? [y/N] " -n 1 -r
+      echo
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        install_tmux
+      fi
     fi
   fi
 
@@ -457,31 +551,7 @@ main() {
   info "Installation complete!"
   echo "======================================"
   echo ""
-  echo "What was done:"
-  echo "  ✓ Python version checked"
-  if [[ -d "$HOME/.claude/skills" ]]; then
-    echo "  ✓ Skills installed to: ~/.claude/skills/"
-  fi
-  # Only show PATH setup if it was actually configured
-  if ! grep -q "ccb_REPO_BIN_PATH_MARKER" "$(get_shell_config)" 2>/dev/null; then
-    echo "  ⚠ PATH not configured (user declined)"
-  else
-    echo "  ✓ $REPO_ROOT/bin added to PATH"
-    echo "  ✓ $REPO_ROOT/lib added to PYTHONPATH"
-  fi
-  echo ""
-  echo "To start using:"
-  echo "  1. Restart your shell, or run:"
-  echo "     export PATH=\"$REPO_ROOT/bin:\$PATH\""
-  echo "     export PYTHONPATH=\"$REPO_ROOT/lib\${PYTHONPATH:+:\$PYTHONPATH}\""
-  echo ""
-  echo "  2. Try:"
-  echo "     ask --help"
-  echo "     ping --help"
-  echo "     pend --help"
-  echo ""
-  echo "Scripts location: $REPO_ROOT/bin/"
-  echo "Skills (centralized): ~/.claude/skills/"
+  echo "  Try: ccb --help, ask --help, ping --help"
   echo ""
 }
 
