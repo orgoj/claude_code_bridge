@@ -139,11 +139,12 @@ install_skills() {
 
       local dest_dir="$central_skills/$skill_name"
 
-      # Remove old symlink or directory if exists
+      # Remove old symlink if exists; skip real directories (user content)
       if [[ -L "$dest_dir" ]]; then
         rm -f "$dest_dir"
       elif [[ -d "$dest_dir" ]]; then
-        rm -rf "$dest_dir"
+        warn "Skipping skill '$skill_name': $dest_dir is a real directory (not a symlink). Remove it manually to reinstall."
+        continue
       fi
 
       # Create symlink to repo skill
