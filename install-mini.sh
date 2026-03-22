@@ -94,13 +94,21 @@ check_python() {
 # Install watchdog for file watching (optional)
 install_watchdog() {
   info "Installing watchdog (for better file watching performance)..."
-  if python3 -m pip install -q watchdog 2>/dev/null; then
-    info "✓ watchdog installed"
-  elif python3 -m pip show watchdog >/dev/null 2>&1; then
-    info "✓ watchdog already installed"
+
+  if command -v apt-get >/dev/null 2>&1; then
+    # Debian/Ubuntu: prefer system package to avoid externally-managed-environment error
+    if apt-get install -y -q python3-watchdog 2>/dev/null; then
+      info "✓ watchdog installed (via apt)"
+      return 0
+    fi
+  fi
+
+  # Non-deb or apt failed: try pip --user
+  if python3 -m pip install -q --user watchdog 2>/dev/null; then
+    info "✓ watchdog installed (via pip --user)"
   else
     warn "Could not install watchdog (will use polling, which is slower)"
-    warn "To install manually: python3 -m pip install watchdog --user"
+    warn "To install manually: apt-get install python3-watchdog  OR  pip install --user watchdog"
   fi
 }
 
@@ -406,7 +414,7 @@ main() {
 
   # Watchdog (optional, only ask if not installed)
   echo ""
-  if python3 -m pip show watchdog >/dev/null 2>&1; then
+  if python3 -c "import watchdog" >/dev/null 2>&1; then
     info "✓ watchdog already installed"
   else
     read -p "Install watchdog for better file watching? [Y/n] " -n 1 -r
