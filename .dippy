@@ -1,0 +1,2 @@
+allow git add *
+allow git commit *
