@@ -31,3 +31,6 @@ GEMINI.md
 openspec
 *.log
 .hippocampus
+
+# bv (beads viewer) local config and caches
+.bv/
