@@ -178,8 +178,17 @@ setup_path() {
   local shell_config
   shell_config="$(get_shell_config)"
 
-  local path_line="export PATH=\"$REPO_ROOT/bin:\$PATH\""
-  local pythonpath_line="export PYTHONPATH=\"$REPO_ROOT/lib\${PYTHONPATH:+:\$PYTHONPATH}\""
+  local current_shell
+  current_shell="$(detect_shell)"
+
+  local path_line pythonpath_line
+  if [[ "$current_shell" == "fish" ]]; then
+    path_line="set -gx PATH \"$REPO_ROOT/bin\" \$PATH"
+    pythonpath_line="set -gx PYTHONPATH \"$REPO_ROOT/lib\" \$PYTHONPATH"
+  else
+    path_line="export PATH=\"$REPO_ROOT/bin:\$PATH\""
+    pythonpath_line="export PYTHONPATH=\"$REPO_ROOT/lib\${PYTHONPATH:+:\$PYTHONPATH}\""
+  fi
 
   # Check if already configured
   if grep -q "ccb_REPO_BIN_PATH_MARKER" "$shell_config" 2>/dev/null; then
@@ -188,7 +197,7 @@ setup_path() {
   fi
 
   # Create parent directory for fish config if needed
-  if [[ "$(detect_shell)" == "fish" ]]; then
+  if [[ "$current_shell" == "fish" ]]; then
     mkdir -p "$(dirname "$shell_config")"
   fi
 
@@ -210,6 +219,18 @@ show_path_preview() {
   local shell_config
   shell_config="$(get_shell_config)"
 
+  local current_shell
+  current_shell="$(detect_shell)"
+
+  local path_line pythonpath_line
+  if [[ "$current_shell" == "fish" ]]; then
+    path_line="set -gx PATH \"$REPO_ROOT/bin\" \$PATH"
+    pythonpath_line="set -gx PYTHONPATH \"$REPO_ROOT/lib\" \$PYTHONPATH"
+  else
+    path_line="export PATH=\"$REPO_ROOT/bin:\$PATH\""
+    pythonpath_line="export PYTHONPATH=\"$REPO_ROOT/lib\${PYTHONPATH:+:\$PYTHONPATH}\""
+  fi
+
   echo ""
   show_preview "The following will be added to your shell config:"
   echo "  Symlink: $REPO_ROOT/bin/ccb → $REPO_ROOT/ccb"
@@ -217,8 +238,8 @@ show_path_preview() {
   echo ""
   echo "  # CCB - Claude Code Bridge (managed by install-mini.sh)"
   echo "  # ccb_REPO_BIN_PATH_MARKER - do not remove this line"
-  echo "  export PATH=\"$REPO_ROOT/bin:\$PATH\""
-  echo "  export PYTHONPATH=\"$REPO_ROOT/lib\${PYTHONPATH:+:\$PYTHONPATH}\""
+  echo "  $path_line"
+  echo "  $pythonpath_line"
   echo ""
 }
 
