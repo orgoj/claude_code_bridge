@@ -294,7 +294,9 @@ install_tmux() {
   done
 
   # Update @CCB_BIN_DIR@ placeholder in tmux config
-  local processed_conf="$tmux_ccb.processed"
+  local ccb_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ccb"
+  local processed_conf="$ccb_config_dir/tmux-ccb-minimal.conf"
+  mkdir -p "$ccb_config_dir"
   sed "s|@CCB_BIN_DIR@|$REPO_ROOT/bin|g" "$tmux_ccb" > "$processed_conf"
 
   # Source the config
@@ -335,7 +337,7 @@ show_tmux_preview() {
   echo ""
   echo "  2. Add to $tmux_conf:"
   echo "     # CCB tmux integration (minimal)"
-  echo "     run -b '$REPO_ROOT/config/tmux-ccb-minimal.conf'"
+  echo "     run -b '${XDG_CONFIG_HOME:-$HOME/.config}/ccb/tmux-ccb-minimal.conf'"
   echo ""
   echo "  3. tmux-ccb-minimal.conf contains:"
   echo "     • Only: set @ccb_bin_dir for CCB theming"
